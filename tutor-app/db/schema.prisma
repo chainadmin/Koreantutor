@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth / users
+// ---------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  PARENT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role
+  name         String
+  locale       String   @default("ko")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+
+  // Present when role == PARENT
+  linkedStudents ParentStudentLink[] @relation("ParentLinks")
+  // Present when role == STUDENT
+  linkedParents  ParentStudentLink[] @relation("StudentLinks")
+
+  masteryRecords     MasteryRecord[]
+  homeworkAssignments HomeworkAssignment[]
+  tutoringSessions   TutoringSession[]
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+enum LinkStatus {
+  PENDING
+  APPROVED
+  REVOKED
+}
+
+// Parent<->student links always start PENDING and require an explicit
+// approval step (invite code accepted by the student) — never automatic.
+model ParentStudentLink {
+  id         String     @id @default(cuid())
+  parentId   String
+  parent     User       @relation("ParentLinks", fields: [parentId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    User       @relation("StudentLinks", fields: [studentId], references: [id], onDelete: Cascade)
+  inviteCode String     @unique
+  status     LinkStatus @default(PENDING)
+  createdAt  DateTime   @default(now())
+  approvedAt DateTime?
+
+  @@unique([parentId, studentId])
+}
+
+// ---------------------------------------------------------------------------
+// Curriculum (fully DB-driven — nothing hard-coded in UI or backend)
+// ---------------------------------------------------------------------------
+
+model Subject {
+  id             String   @id @default(cuid())
+  name           String
+  curriculumYear String
+  grade          String
+  createdAt      DateTime @default(now())
+
+  units Unit[]
+
+  @@unique([name, curriculumYear, grade])
+}
+
+model Unit {
+  id        String  @id @default(cuid())
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title     String
+  order     Int
+
+  concepts Concept[]
+
+  @@index([subjectId])
+}
+
+model Concept {
+  id          String  @id @default(cuid())
+  unitId      String
+  unit        Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  order       Int
+  difficulty  Int     @default(1)
+
+  masteryRecords   MasteryRecord[]
+  homeworkItems    HomeworkItem[]
+  tutoringSessions TutoringSession[]
+
+  @@index([unitId])
+}
+
+// ---------------------------------------------------------------------------
+// Mastery
+// ---------------------------------------------------------------------------
+
+model MasteryRecord {
+  id             String   @id @default(cuid())
+  studentId      String
+  student        User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  conceptId      String
+  concept        Concept  @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  level          Float    @default(0) // 0.0 (not started) .. 1.0 (mastered)
+  attempts       Int      @default(0)
+  lastAssessedAt DateTime @default(now())
+
+  @@unique([studentId, conceptId])
+}
+
+// ---------------------------------------------------------------------------
+// Homework
+// ---------------------------------------------------------------------------
+
+enum HomeworkStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model HomeworkAssignment {
+  id          String         @id @default(cuid())
+  studentId   String
+  student     User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status      HomeworkStatus @default(ASSIGNED)
+  dueAt       DateTime?
+  createdAt   DateTime       @default(now())
+
+  items HomeworkItem[]
+
+  @@index([studentId])
+}
+
+model HomeworkItem {
+  id               String    @id @default(cuid())
+  assignmentId     String
+  assignment       HomeworkAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  conceptId        String
+  concept          Concept   @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  prompt           String
+  submittedAnswer  String?
+  isCorrect        Boolean?
+  completedAt      DateTime?
+
+  @@index([assignmentId])
+}
+
+// ---------------------------------------------------------------------------
+// Tutoring sessions — driven by the TutoringSession state machine
+// (see packages/backend/src/services/tutoring/tutoring-session.ts)
+// ---------------------------------------------------------------------------
+
+enum TutoringPhase {
+  EXPLAIN
+  QUESTION
+  EVALUATE
+  HINT
+  RETRY
+  REVEAL
+  RECORD_WEAKNESS
+  COMPLETE
+}
+
+enum TutoringMessageRole {
+  SYSTEM
+  TUTOR
+  STUDENT
+}
+
+model TutoringSession {
+  id           String        @id @default(cuid())
+  studentId    String
+  student      User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  conceptId    String
+  concept      Concept       @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  providerName String
+  phase        TutoringPhase @default(EXPLAIN)
+  startedAt    DateTime      @default(now())
+  endedAt      DateTime?
+
+  messages TutoringMessage[]
+
+  @@index([studentId])
+  @@index([conceptId])
+}
+
+model TutoringMessage {
+  id        String              @id @default(cuid())
+  sessionId String
+  session   TutoringSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      TutoringMessageRole
+  phase     TutoringPhase
+  content   String
+  createdAt DateTime            @default(now())
+
+  @@index([sessionId])
+}

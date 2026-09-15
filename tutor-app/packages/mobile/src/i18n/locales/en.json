@@ -1,0 +1,30 @@
+{
+  "common": {
+    "appName": "AI Tutor",
+    "loading": "Loading...",
+    "submit": "Submit",
+    "cancel": "Cancel"
+  },
+  "auth": {
+    "login": "Log in",
+    "register": "Sign up",
+    "email": "Email",
+    "password": "Password",
+    "name": "Name",
+    "iAmA": "I am a...",
+    "student": "Student",
+    "parent": "Parent"
+  },
+  "student": {
+    "home": "Student home",
+    "startTutoring": "Start a lesson",
+    "homework": "Homework",
+    "mastery": "Mastery"
+  },
+  "parent": {
+    "home": "Parent home",
+    "linkStudent": "Link a student",
+    "inviteCode": "Invite code",
+    "progress": "Progress"
+  }
+}
