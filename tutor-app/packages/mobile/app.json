@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "AI Tutor",
+    "slug": "ai-tutor",
+    "scheme": "aitutor",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tutorapp.aitutor"
+    },
+    "android": {
+      "package": "com.tutorapp.aitutor"
+    }
+  }
+}

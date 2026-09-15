@@ -1,0 +1,22 @@
+{
+  "name": "tutor-app",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/backend",
+    "packages/mobile"
+  ],
+  "scripts": {
+    "backend:dev": "npm run dev --workspace packages/backend",
+    "backend:build": "npm run build --workspace packages/backend",
+    "mobile:start": "npm run start --workspace packages/mobile",
+    "db:generate": "prisma generate --schema db/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema db/schema.prisma",
+    "db:seed": "ts-node db/seed.ts"
+  },
+  "devDependencies": {
+    "prisma": "^5.19.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

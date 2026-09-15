@@ -1,0 +1,30 @@
+{
+  "common": {
+    "appName": "AI 튜터",
+    "loading": "불러오는 중...",
+    "submit": "제출",
+    "cancel": "취소"
+  },
+  "auth": {
+    "login": "로그인",
+    "register": "회원가입",
+    "email": "이메일",
+    "password": "비밀번호",
+    "name": "이름",
+    "iAmA": "저는...",
+    "student": "학생",
+    "parent": "학부모"
+  },
+  "student": {
+    "home": "학생 홈",
+    "startTutoring": "학습 시작하기",
+    "homework": "숙제",
+    "mastery": "이해도"
+  },
+  "parent": {
+    "home": "학부모 홈",
+    "linkStudent": "자녀 연결하기",
+    "inviteCode": "초대 코드",
+    "progress": "학습 진행 상황"
+  }
+}
