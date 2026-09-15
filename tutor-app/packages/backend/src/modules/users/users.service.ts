@@ -1,49 +1,56 @@
-import crypto from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 
-function generateInviteCode(): string {
-  return crypto.randomBytes(4).toString("hex").toUpperCase();
-}
-
+/**
+ * Links always start PENDING and are approved by the student themselves —
+ * never automatic. The approval check is scoped to the authenticated
+ * student's own StudentProfile.id, so there is no separate invite-code
+ * secret to leak or type in.
+ */
 export class UsersService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  /** A parent creates a pending invite; nothing links automatically. */
-  async createInvite(parentId: string, studentEmail: string) {
-    const student = await this.prisma.user.findUnique({ where: { email: studentEmail } });
-    if (!student || student.role !== "STUDENT") {
+  /** A parent requests a link to a student by the student's account email. */
+  async requestLink(parentId: string, studentEmail: string) {
+    const studentUser = await this.prisma.user.findUnique({
+      where: { email: studentEmail },
+      include: { studentProfile: true },
+    });
+    if (!studentUser || studentUser.role !== "STUDENT" || !studentUser.studentProfile) {
       throw new Error("No student account found for that email");
     }
 
-    return this.prisma.parentStudentLink.create({
-      data: {
+    return this.prisma.parentStudentLink.upsert({
+      where: {
+        parentId_studentId: { parentId, studentId: studentUser.studentProfile.id },
+      },
+      update: {},
+      create: {
         parentId,
-        studentId: student.id,
-        inviteCode: generateInviteCode(),
+        studentId: studentUser.studentProfile.id,
         status: "PENDING",
       },
     });
   }
 
-  /** The student explicitly approves the link using the invite code. */
-  async approveInvite(studentId: string, inviteCode: string) {
-    const link = await this.prisma.parentStudentLink.findUnique({ where: { inviteCode } });
-    if (!link || link.studentId !== studentId) {
-      throw new Error("Invalid invite code");
+  /** The student explicitly approves a pending link by its id. */
+  async approveLink(studentProfileId: string, linkId: string) {
+    const link = await this.prisma.parentStudentLink.findUniqueOrThrow({ where: { id: linkId } });
+    if (link.studentId !== studentProfileId) {
+      throw new Error("Not authorized to approve this link");
     }
     if (link.status !== "PENDING") {
-      throw new Error("Invite is not pending");
+      throw new Error("Link is not pending");
     }
 
     return this.prisma.parentStudentLink.update({
-      where: { id: link.id },
+      where: { id: linkId },
       data: { status: "APPROVED", approvedAt: new Date() },
     });
   }
 
-  async revokeLink(requesterId: string, linkId: string) {
+  async revokeLink(parentUserId: string, studentProfileId: string, linkId: string) {
     const link = await this.prisma.parentStudentLink.findUniqueOrThrow({ where: { id: linkId } });
-    if (link.parentId !== requesterId && link.studentId !== requesterId) {
+    if (link.parentId !== parentUserId && link.studentId !== studentProfileId) {
       throw new Error("Not authorized to revoke this link");
     }
 
@@ -56,14 +63,14 @@ export class UsersService {
   async listLinkedStudents(parentId: string) {
     return this.prisma.parentStudentLink.findMany({
       where: { parentId, status: "APPROVED" },
-      include: { student: { select: { id: true, name: true, email: true } } },
+      include: { student: { select: { id: true, displayName: true } } },
     });
   }
 
-  async listLinkedParents(studentId: string) {
+  async listPendingRequests(studentProfileId: string) {
     return this.prisma.parentStudentLink.findMany({
-      where: { studentId, status: "APPROVED" },
-      include: { parent: { select: { id: true, name: true, email: true } } },
+      where: { studentId: studentProfileId, status: "PENDING" },
+      include: { parent: { select: { id: true, email: true } } },
     });
   }
 }

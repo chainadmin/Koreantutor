@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { MasteryService } from "./mastery.service";
 
+const DEFAULT_DUE_DAYS = 7;
+
 export class HomeworkService {
   private readonly masteryService: MasteryService;
 
@@ -11,53 +13,62 @@ export class HomeworkService {
   async listForStudent(studentId: string) {
     return this.prisma.homeworkAssignment.findMany({
       where: { studentId },
-      include: { items: { include: { concept: true } } },
-      orderBy: { createdAt: "desc" },
+      include: { homeworkQuestions: { include: { question: { include: { choices: true } } } } },
+      orderBy: { assignedDate: "desc" },
     });
   }
 
-  /** Builds an assignment out of the student's current weak concepts. */
-  async assignFromWeakConcepts(studentId: string, prompts: Record<string, string>, dueAt?: Date) {
+  /** Builds an assignment from one HOMEWORK-type question per weak concept. */
+  async assignFromWeakConcepts(studentId: string, dueDate?: Date) {
     const weak = await this.masteryService.listWeakConcepts(studentId);
     if (weak.length === 0) {
       throw new Error("No weak concepts to assign homework for");
     }
 
+    const questions = await Promise.all(
+      weak.map((record) =>
+        this.prisma.question.findFirst({
+          where: { conceptId: record.conceptId, type: "HOMEWORK" },
+        }),
+      ),
+    );
+    const usableQuestions = questions.filter((question): question is NonNullable<typeof question> => question !== null);
+    if (usableQuestions.length === 0) {
+      throw new Error("No homework questions available for the student's weak concepts");
+    }
+
+    const resolvedDueDate = dueDate ?? new Date(Date.now() + DEFAULT_DUE_DAYS * 24 * 60 * 60 * 1000);
+
     return this.prisma.homeworkAssignment.create({
       data: {
         studentId,
-        dueAt,
-        items: {
-          create: weak.map((record) => ({
-            conceptId: record.conceptId,
-            prompt: prompts[record.conceptId] ?? `Practice: ${record.concept.title}`,
-          })),
+        dueDate: resolvedDueDate,
+        homeworkQuestions: {
+          create: usableQuestions.map((question) => ({ questionId: question.id })),
         },
       },
-      include: { items: true },
+      include: { homeworkQuestions: true },
     });
   }
 
-  async submitAnswer(itemId: string, answer: string, isCorrect: boolean) {
-    const item = await this.prisma.homeworkItem.update({
-      where: { id: itemId },
-      data: { submittedAnswer: answer, isCorrect, completedAt: new Date() },
-      include: { assignment: true },
+  async submitAnswer(homeworkQuestionId: string, answerGiven: string, isCorrect: boolean) {
+    const item = await this.prisma.homeworkQuestion.update({
+      where: { id: homeworkQuestionId },
+      data: { answerGiven, isCorrect, attempts: { increment: 1 } },
     });
 
-    const remaining = await this.prisma.homeworkItem.count({
-      where: { assignmentId: item.assignmentId, completedAt: null },
-    });
+    const [pending, total] = await Promise.all([
+      this.prisma.homeworkQuestion.count({ where: { homeworkId: item.homeworkId, isCorrect: null } }),
+      this.prisma.homeworkQuestion.count({ where: { homeworkId: item.homeworkId } }),
+    ]);
 
-    if (remaining === 0) {
-      await this.prisma.homeworkAssignment.update({
-        where: { id: item.assignmentId },
-        data: { status: "COMPLETED" },
+    if (pending === 0) {
+      const correct = await this.prisma.homeworkQuestion.count({
+        where: { homeworkId: item.homeworkId, isCorrect: true },
       });
-    } else {
       await this.prisma.homeworkAssignment.update({
-        where: { id: item.assignmentId },
-        data: { status: "IN_PROGRESS" },
+        where: { id: item.homeworkId },
+        data: { completed: true, score: Math.round((correct / total) * 100) },
       });
     }
 

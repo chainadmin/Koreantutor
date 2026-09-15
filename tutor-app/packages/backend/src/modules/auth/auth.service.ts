@@ -1,13 +1,17 @@
 import argon2 from "argon2";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import type { PrismaClient, Role } from "@prisma/client";
+import type { PrismaClient, UserRole } from "@prisma/client";
 import { env } from "../../config/env";
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
+
+export type RegisterParams =
+  | { email: string; password: string; role: "PARENT" }
+  | { email: string; password: string; role: "STUDENT"; displayName: string; gradeId: string };
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -16,22 +20,29 @@ function hashToken(token: string): string {
 export class AuthService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async register(params: { email: string; password: string; name: string; role: Role; locale?: string }) {
+  async register(params: RegisterParams) {
     const existing = await this.prisma.user.findUnique({ where: { email: params.email } });
     if (existing) {
       throw new Error("Email already registered");
     }
 
     const passwordHash = await argon2.hash(params.password);
-    const user = await this.prisma.user.create({
-      data: {
-        email: params.email,
-        passwordHash,
-        name: params.name,
-        role: params.role,
-        locale: params.locale ?? "ko",
-      },
-    });
+
+    const user =
+      params.role === "STUDENT"
+        ? await this.prisma.user.create({
+            data: {
+              email: params.email,
+              passwordHash,
+              role: "STUDENT",
+              studentProfile: {
+                create: { displayName: params.displayName, gradeId: params.gradeId },
+              },
+            },
+          })
+        : await this.prisma.user.create({
+            data: { email: params.email, passwordHash, role: "PARENT" },
+          });
 
     return this.issueTokens(user.id, user.role);
   }
@@ -78,7 +89,7 @@ export class AuthService {
     });
   }
 
-  private async issueTokens(userId: string, role: Role): Promise<AuthTokens> {
+  private async issueTokens(userId: string, role: UserRole): Promise<AuthTokens> {
     const accessToken = jwt.sign({ sub: userId, role }, env.jwtAccessSecret, {
       expiresIn: env.accessTokenTtl as jwt.SignOptions["expiresIn"],
     });

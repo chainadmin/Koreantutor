@@ -1,7 +1,21 @@
-import type { TutoringPhase } from "@prisma/client";
 import type { TutorConcept, TutorMessage, TutorProvider } from "./tutor-provider.interface";
 
 const MAX_RETRIES = 2;
+
+/**
+ * Not a DB column — the schema only persists TutorMessage rows (role +
+ * content) per TutorConversation. Phase is state the machine tracks
+ * in-memory for the lifetime of one conversation.
+ */
+export type TutoringPhase =
+  | "EXPLAIN"
+  | "QUESTION"
+  | "EVALUATE"
+  | "HINT"
+  | "RETRY"
+  | "REVEAL"
+  | "RECORD_WEAKNESS"
+  | "COMPLETE";
 
 export interface TutoringStep {
   phase: TutoringPhase;
@@ -18,8 +32,7 @@ export interface TutoringStep {
  * weakness) is guaranteed by this code, not left to prompting alone.
  *
  * One instance covers one concept for one student. Callers persist each
- * TutoringStep as a TutoringMessage and advance the session's `phase`
- * column to match `this.phase` after every call.
+ * TutoringStep as a TutorMessage row on the owning TutorConversation.
  */
 export class TutoringSession {
   phase: TutoringPhase = "EXPLAIN";

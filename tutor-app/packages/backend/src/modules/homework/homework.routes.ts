@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { authenticate, requireRole } from "../../middleware/auth.middleware";
+import { resolveStudentProfileId } from "../students/students.util";
 import { HomeworkService } from "../../services/homework.service";
 
 export async function homeworkRoutes(app: FastifyInstance) {
@@ -9,7 +10,8 @@ export async function homeworkRoutes(app: FastifyInstance) {
     "/",
     { preHandler: [authenticate, requireRole("STUDENT")] },
     async (request, reply) => {
-      return reply.send(await homeworkService.listForStudent(request.user!.sub));
+      const studentId = await resolveStudentProfileId(app.prisma, request.user!.sub);
+      return reply.send(await homeworkService.listForStudent(studentId));
     },
   );
 
@@ -18,7 +20,8 @@ export async function homeworkRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, requireRole("STUDENT")] },
     async (request, reply) => {
       try {
-        const assignment = await homeworkService.assignFromWeakConcepts(request.user!.sub, {});
+        const studentId = await resolveStudentProfileId(app.prisma, request.user!.sub);
+        const assignment = await homeworkService.assignFromWeakConcepts(studentId);
         return reply.code(201).send(assignment);
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });

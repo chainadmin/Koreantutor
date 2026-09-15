@@ -1,17 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { authenticate, requireRole } from "../../middleware/auth.middleware";
+import { resolveStudentProfileId } from "../students/students.util";
 import { UsersService } from "./users.service";
 
 export async function usersRoutes(app: FastifyInstance) {
   const usersService = new UsersService(app.prisma);
 
   app.post(
-    "/links/invite",
+    "/links/request",
     { preHandler: [authenticate, requireRole("PARENT")] },
     async (request, reply) => {
       const { studentEmail } = request.body as { studentEmail: string };
       try {
-        const link = await usersService.createInvite(request.user!.sub, studentEmail);
+        const link = await usersService.requestLink(request.user!.sub, studentEmail);
         return reply.code(201).send(link);
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
@@ -20,12 +21,13 @@ export async function usersRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    "/links/approve",
+    "/links/:linkId/approve",
     { preHandler: [authenticate, requireRole("STUDENT")] },
     async (request, reply) => {
-      const { inviteCode } = request.body as { inviteCode: string };
+      const { linkId } = request.params as { linkId: string };
       try {
-        const link = await usersService.approveInvite(request.user!.sub, inviteCode);
+        const studentProfileId = await resolveStudentProfileId(app.prisma, request.user!.sub);
+        const link = await usersService.approveLink(studentProfileId, linkId);
         return reply.send(link);
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
@@ -39,7 +41,9 @@ export async function usersRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { linkId } = request.params as { linkId: string };
       try {
-        const link = await usersService.revokeLink(request.user!.sub, linkId);
+        const studentProfileId =
+          request.user!.role === "STUDENT" ? await resolveStudentProfileId(app.prisma, request.user!.sub) : "";
+        const link = await usersService.revokeLink(request.user!.sub, studentProfileId, linkId);
         return reply.send(link);
       } catch (err) {
         return reply.code(403).send({ error: (err as Error).message });
@@ -56,10 +60,11 @@ export async function usersRoutes(app: FastifyInstance) {
   );
 
   app.get(
-    "/me/parents",
+    "/me/pending-requests",
     { preHandler: [authenticate, requireRole("STUDENT")] },
     async (request, reply) => {
-      return reply.send(await usersService.listLinkedParents(request.user!.sub));
+      const studentProfileId = await resolveStudentProfileId(app.prisma, request.user!.sub);
+      return reply.send(await usersService.listPendingRequests(studentProfileId));
     },
   );
 }

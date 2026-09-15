@@ -11,6 +11,7 @@
     "email": "Email",
     "password": "Password",
     "name": "Name",
+    "gradeId": "Grade ID (temporary)",
     "iAmA": "I am a...",
     "student": "Student",
     "parent": "Parent"

@@ -1,8 +1,8 @@
-import type { Role } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
 
 export interface AccessTokenPayload {
-  sub: string; // user id
-  role: Role;
+  sub: string; // User.id (for STUDENT role, resolve StudentProfile.id separately)
+  role: UserRole;
 }
 
 declare module "fastify" {

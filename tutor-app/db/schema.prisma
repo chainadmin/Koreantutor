@@ -1,3 +1,7 @@
+// AI Tutoring App — Database Schema
+// PostgreSQL via Prisma. Nothing here is curriculum content — this is structure only,
+// so official curriculum can be imported later without schema changes.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,216 +11,409 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---------------------------------------------------------------------------
-// Auth / users
-// ---------------------------------------------------------------------------
+// ---------- Users & Roles ----------
 
-enum Role {
+enum UserRole {
   STUDENT
   PARENT
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String
-  role         Role
-  name         String
-  locale       String   @default("ko")
+  role         UserRole
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  studentProfile StudentProfile?
+
+  parentLinks ParentStudentLink[] @relation("ParentLinks")
   refreshTokens RefreshToken[]
 
-  // Present when role == PARENT
-  linkedStudents ParentStudentLink[] @relation("ParentLinks")
-  // Present when role == STUDENT
-  linkedParents  ParentStudentLink[] @relation("StudentLinks")
-
-  masteryRecords     MasteryRecord[]
-  homeworkAssignments HomeworkAssignment[]
-  tutoringSessions   TutoringSession[]
+  @@map("users")
 }
 
+model StudentProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id])
+  displayName   String
+  gradeId       String
+  grade         Grade    @relation(fields: [gradeId], references: [id])
+  onboardedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  parentLinks       ParentStudentLink[] @relation("StudentLinks")
+  conceptMastery    StudentConceptMastery[]
+  lessonAttempts    LessonAttempt[]
+  questionAttempts  QuestionAttempt[]
+  homeworkAssignments HomeworkAssignment[]
+  studySessions     StudySession[]
+  studyPlans        StudyPlan[]
+  tutorConversations TutorConversation[]
+  progressSnapshots ProgressSnapshot[]
+
+  @@map("student_profiles")
+}
+
+// Explicit authorization required — no automatic linking.
+model ParentStudentLink {
+  id            String   @id @default(uuid())
+  parentId      String
+  parent        User     @relation("ParentLinks", fields: [parentId], references: [id])
+  studentId     String
+  student       StudentProfile @relation("StudentLinks", fields: [studentId], references: [id])
+  status        String   @default("PENDING") // PENDING | APPROVED | REVOKED
+  requestedAt   DateTime @default(now())
+  approvedAt    DateTime?
+
+  @@unique([parentId, studentId])
+  @@map("parent_student_links")
+}
+
+// ---------- Curriculum Hierarchy ----------
+// Country -> Curriculum -> SchoolLevel -> Grade -> Subject -> Semester -> Unit -> Concept -> LearningObjective
+
+model Curriculum {
+  id          String   @id @default(uuid())
+  country     String   // e.g. "KR"
+  name        String   // e.g. "2022 Revised National Curriculum"
+  createdAt   DateTime @default(now())
+
+  schoolLevels SchoolLevel[]
+
+  @@map("curricula")
+}
+
+model SchoolLevel {
+  id           String     @id @default(uuid())
+  curriculumId String
+  curriculum   Curriculum @relation(fields: [curriculumId], references: [id])
+  name         String     // e.g. "Middle School"
+
+  grades Grade[]
+
+  @@map("school_levels")
+}
+
+model Grade {
+  id            String      @id @default(uuid())
+  schoolLevelId String
+  schoolLevel   SchoolLevel @relation(fields: [schoolLevelId], references: [id])
+  name          String      // e.g. "Grade 1"
+  level         Int         // numeric sort order
+
+  subjects        Subject[]
+  studentProfiles StudentProfile[]
+
+  @@map("grades")
+}
+
+model Subject {
+  id       String  @id @default(uuid())
+  gradeId  String
+  grade    Grade   @relation(fields: [gradeId], references: [id])
+  nameKo   String
+  nameEn   String
+
+  semesters Semester[]
+
+  @@map("subjects")
+}
+
+model Semester {
+  id        String  @id @default(uuid())
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id])
+  name      String  // e.g. "1st Semester"
+  order     Int
+
+  units Unit[]
+
+  @@map("semesters")
+}
+
+model Unit {
+  id         String   @id @default(uuid())
+  semesterId String
+  semester   Semester @relation(fields: [semesterId], references: [id])
+  nameKo     String
+  nameEn     String
+  order      Int
+
+  concepts Concept[]
+
+  @@map("units")
+}
+
+model Concept {
+  id                   String   @id @default(uuid())
+  unitId               String
+  unit                 Unit     @relation(fields: [unitId], references: [id])
+  titleKo              String
+  titleEn              String
+  description          String
+  difficulty           Int      // e.g. 1-5
+  estimatedMinutes     Int
+  masteryThreshold     Int      @default(80) // 0-100
+
+  learningObjectives   LearningObjective[]
+  prerequisitesFrom    ConceptPrerequisite[] @relation("ConceptToPrereq")
+  prerequisitesOf       ConceptPrerequisite[] @relation("PrereqToConcept")
+  lessons              Lesson[]
+  questions            Question[]
+  studentMastery       StudentConceptMastery[]
+
+  @@map("concepts")
+}
+
+model LearningObjective {
+  id        String  @id @default(uuid())
+  conceptId String
+  concept   Concept @relation(fields: [conceptId], references: [id])
+  text      String
+
+  @@map("learning_objectives")
+}
+
+// Self-referential many-to-many: a concept can require other concepts.
+model ConceptPrerequisite {
+  id               String  @id @default(uuid())
+  conceptId        String
+  concept          Concept @relation("ConceptToPrereq", fields: [conceptId], references: [id])
+  prerequisiteId   String
+  prerequisite     Concept @relation("PrereqToConcept", fields: [prerequisiteId], references: [id])
+
+  @@unique([conceptId, prerequisiteId])
+  @@map("concept_prerequisites")
+}
+
+// ---------- Lessons, Questions ----------
+
+model Lesson {
+  id        String  @id @default(uuid())
+  conceptId String
+  concept   Concept @relation(fields: [conceptId], references: [id])
+  titleKo   String
+  titleEn   String
+  content   Json    // structured lesson body (steps, examples, media refs)
+  order     Int
+
+  lessonAttempts LessonAttempt[]
+
+  @@map("lessons")
+}
+
+enum QuestionType {
+  PRACTICE
+  HOMEWORK
+  ASSESSMENT
+}
+
+model Question {
+  id         String       @id @default(uuid())
+  conceptId  String
+  concept    Concept      @relation(fields: [conceptId], references: [id])
+  type       QuestionType
+  prompt     String
+  difficulty Int
+  explanation String
+
+  choices          QuestionChoice[]
+  questionAttempts QuestionAttempt[]
+  homeworkQuestions HomeworkQuestion[]
+
+  @@map("questions")
+}
+
+model QuestionChoice {
+  id         String   @id @default(uuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+  text       String
+  isCorrect  Boolean
+
+  @@map("question_choices")
+}
+
+// ---------- Mastery ----------
+
+model StudentConceptMastery {
+  id               String   @id @default(uuid())
+  studentId        String
+  student          StudentProfile @relation(fields: [studentId], references: [id])
+  conceptId        String
+  concept          Concept  @relation(fields: [conceptId], references: [id])
+  attempts         Int      @default(0)
+  correctCount     Int      @default(0)
+  incorrectCount   Int      @default(0)
+  hintsUsed        Int      @default(0)
+  timeSpentSeconds Int      @default(0)
+  lessonCompleted  Boolean  @default(false)
+  homeworkCompleted Boolean @default(false)
+  currentMastery   Int      @default(0) // 0-100
+  lastPracticedAt  DateTime?
+  updatedAt        DateTime @updatedAt
+
+  masteryHistory MasteryHistoryEntry[]
+
+  @@unique([studentId, conceptId])
+  @@map("student_concept_mastery")
+}
+
+model MasteryHistoryEntry {
+  id          String   @id @default(uuid())
+  masteryId   String
+  mastery     StudentConceptMastery @relation(fields: [masteryId], references: [id])
+  score       Int
+  recordedAt  DateTime @default(now())
+
+  @@map("mastery_history")
+}
+
+model LessonAttempt {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id])
+  lessonId    String
+  lesson      Lesson   @relation(fields: [lessonId], references: [id])
+  completed   Boolean  @default(false)
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@map("lesson_attempts")
+}
+
+model QuestionAttempt {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id])
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id])
+  isCorrect   Boolean
+  hintsUsed   Int      @default(0)
+  answerGiven String
+  attemptedAt DateTime @default(now())
+
+  @@map("question_attempts")
+}
+
+// ---------- Homework ----------
+
+model HomeworkAssignment {
+  id           String   @id @default(uuid())
+  studentId    String
+  student      StudentProfile @relation(fields: [studentId], references: [id])
+  assignedDate DateTime @default(now())
+  dueDate      DateTime
+  completed    Boolean  @default(false)
+  score        Int?
+
+  homeworkQuestions HomeworkQuestion[]
+
+  @@map("homework_assignments")
+}
+
+model HomeworkQuestion {
+  id           String   @id @default(uuid())
+  homeworkId   String
+  homework     HomeworkAssignment @relation(fields: [homeworkId], references: [id])
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id])
+  answerGiven  String?
+  isCorrect    Boolean?
+  aiFeedback   String?
+  attempts     Int      @default(0)
+
+  @@map("homework_questions")
+}
+
+// ---------- Study Plans / Sessions ----------
+
+model StudySession {
+  id         String   @id @default(uuid())
+  studentId  String
+  student    StudentProfile @relation(fields: [studentId], references: [id])
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+  activityType String // LESSON | PRACTICE | HOMEWORK | ASSESSMENT
+
+  @@map("study_sessions")
+}
+
+model StudyPlan {
+  id        String   @id @default(uuid())
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id])
+  planDate  DateTime
+  items     Json     // ordered list of planned activities (concept refs, type, est. time)
+  generatedAt DateTime @default(now())
+
+  @@map("study_plans")
+}
+
+// ---------- AI Tutor Conversations ----------
+
+model TutorConversation {
+  id         String   @id @default(uuid())
+  studentId  String
+  student    StudentProfile @relation(fields: [studentId], references: [id])
+  conceptId  String?
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+
+  messages TutorMessage[]
+
+  @@map("tutor_conversations")
+}
+
+enum MessageRole {
+  STUDENT
+  TUTOR
+  SYSTEM
+}
+
+model TutorMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  conversation   TutorConversation @relation(fields: [conversationId], references: [id])
+  role           MessageRole
+  content        String
+  createdAt      DateTime @default(now())
+
+  @@map("tutor_messages")
+}
+
+// ---------- Progress Snapshots (for parent weekly reports) ----------
+
+model ProgressSnapshot {
+  id            String   @id @default(uuid())
+  studentId     String
+  student       StudentProfile @relation(fields: [studentId], references: [id])
+  periodStart   DateTime
+  periodEnd     DateTime
+  studyTimeMinutes Int
+  lessonsCompleted Int
+  homeworkCompletionRate Float
+  strongConcepts Json  // array of concept IDs
+  weakConcepts   Json  // array of concept IDs
+  aiRecommendations String
+
+  @@map("progress_snapshots")
+}
+
+// ---------- Auth infra ----------
+
 model RefreshToken {
-  id        String    @id @default(cuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
 
   @@index([userId])
-}
-
-enum LinkStatus {
-  PENDING
-  APPROVED
-  REVOKED
-}
-
-// Parent<->student links always start PENDING and require an explicit
-// approval step (invite code accepted by the student) — never automatic.
-model ParentStudentLink {
-  id         String     @id @default(cuid())
-  parentId   String
-  parent     User       @relation("ParentLinks", fields: [parentId], references: [id], onDelete: Cascade)
-  studentId  String
-  student    User       @relation("StudentLinks", fields: [studentId], references: [id], onDelete: Cascade)
-  inviteCode String     @unique
-  status     LinkStatus @default(PENDING)
-  createdAt  DateTime   @default(now())
-  approvedAt DateTime?
-
-  @@unique([parentId, studentId])
-}
-
-// ---------------------------------------------------------------------------
-// Curriculum (fully DB-driven — nothing hard-coded in UI or backend)
-// ---------------------------------------------------------------------------
-
-model Subject {
-  id             String   @id @default(cuid())
-  name           String
-  curriculumYear String
-  grade          String
-  createdAt      DateTime @default(now())
-
-  units Unit[]
-
-  @@unique([name, curriculumYear, grade])
-}
-
-model Unit {
-  id        String  @id @default(cuid())
-  subjectId String
-  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  title     String
-  order     Int
-
-  concepts Concept[]
-
-  @@index([subjectId])
-}
-
-model Concept {
-  id          String  @id @default(cuid())
-  unitId      String
-  unit        Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  title       String
-  description String
-  order       Int
-  difficulty  Int     @default(1)
-
-  masteryRecords   MasteryRecord[]
-  homeworkItems    HomeworkItem[]
-  tutoringSessions TutoringSession[]
-
-  @@index([unitId])
-}
-
-// ---------------------------------------------------------------------------
-// Mastery
-// ---------------------------------------------------------------------------
-
-model MasteryRecord {
-  id             String   @id @default(cuid())
-  studentId      String
-  student        User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  conceptId      String
-  concept        Concept  @relation(fields: [conceptId], references: [id], onDelete: Cascade)
-  level          Float    @default(0) // 0.0 (not started) .. 1.0 (mastered)
-  attempts       Int      @default(0)
-  lastAssessedAt DateTime @default(now())
-
-  @@unique([studentId, conceptId])
-}
-
-// ---------------------------------------------------------------------------
-// Homework
-// ---------------------------------------------------------------------------
-
-enum HomeworkStatus {
-  ASSIGNED
-  IN_PROGRESS
-  COMPLETED
-}
-
-model HomeworkAssignment {
-  id          String         @id @default(cuid())
-  studentId   String
-  student     User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  status      HomeworkStatus @default(ASSIGNED)
-  dueAt       DateTime?
-  createdAt   DateTime       @default(now())
-
-  items HomeworkItem[]
-
-  @@index([studentId])
-}
-
-model HomeworkItem {
-  id               String    @id @default(cuid())
-  assignmentId     String
-  assignment       HomeworkAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  conceptId        String
-  concept          Concept   @relation(fields: [conceptId], references: [id], onDelete: Cascade)
-  prompt           String
-  submittedAnswer  String?
-  isCorrect        Boolean?
-  completedAt      DateTime?
-
-  @@index([assignmentId])
-}
-
-// ---------------------------------------------------------------------------
-// Tutoring sessions — driven by the TutoringSession state machine
-// (see packages/backend/src/services/tutoring/tutoring-session.ts)
-// ---------------------------------------------------------------------------
-
-enum TutoringPhase {
-  EXPLAIN
-  QUESTION
-  EVALUATE
-  HINT
-  RETRY
-  REVEAL
-  RECORD_WEAKNESS
-  COMPLETE
-}
-
-enum TutoringMessageRole {
-  SYSTEM
-  TUTOR
-  STUDENT
-}
-
-model TutoringSession {
-  id           String        @id @default(cuid())
-  studentId    String
-  student      User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  conceptId    String
-  concept      Concept       @relation(fields: [conceptId], references: [id], onDelete: Cascade)
-  providerName String
-  phase        TutoringPhase @default(EXPLAIN)
-  startedAt    DateTime      @default(now())
-  endedAt      DateTime?
-
-  messages TutoringMessage[]
-
-  @@index([studentId])
-  @@index([conceptId])
-}
-
-model TutoringMessage {
-  id        String              @id @default(cuid())
-  sessionId String
-  session   TutoringSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role      TutoringMessageRole
-  phase     TutoringPhase
-  content   String
-  createdAt DateTime            @default(now())
-
-  @@index([sessionId])
+  @@map("refresh_tokens")
 }

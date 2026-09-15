@@ -5,13 +5,18 @@ import { CurriculumService } from "../../services/curriculum.service";
 export async function curriculumRoutes(app: FastifyInstance) {
   const curriculumService = new CurriculumService(app.prisma);
 
-  app.get("/subjects", { preHandler: [authenticate] }, async (_request, reply) => {
-    return reply.send(await curriculumService.listSubjects());
+  app.get("/curricula", { preHandler: [authenticate] }, async (_request, reply) => {
+    return reply.send(await curriculumService.listCurricula());
   });
 
-  app.get("/subjects/:subjectId", { preHandler: [authenticate] }, async (request, reply) => {
-    const { subjectId } = request.params as { subjectId: string };
-    return reply.send(await curriculumService.getSubjectTree(subjectId));
+  app.get("/grades", { preHandler: [authenticate] }, async (request, reply) => {
+    const { schoolLevelId } = request.query as { schoolLevelId?: string };
+    return reply.send(await curriculumService.listGrades(schoolLevelId));
+  });
+
+  app.get("/grades/:gradeId", { preHandler: [authenticate] }, async (request, reply) => {
+    const { gradeId } = request.params as { gradeId: string };
+    return reply.send(await curriculumService.getGradeTree(gradeId));
   });
 
   app.get("/concepts/:conceptId", { preHandler: [authenticate] }, async (request, reply) => {

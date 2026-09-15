@@ -6,9 +6,15 @@ import { apiFetch, setAccessToken } from "../../src/api/client";
 
 type Role = "STUDENT" | "PARENT";
 
+// Backend contract: PARENT registers with just email/password/role — the
+// schema stores no name for a parent. STUDENT additionally requires
+// displayName + gradeId (StudentProfile is created alongside the User).
+// TODO: replace the raw gradeId input with a picker backed by
+// GET /api/v1/curriculum/grades once that UI exists.
 export default function RegisterScreen() {
   const { t } = useTranslation();
-  const [name, setName] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [gradeId, setGradeId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("STUDENT");
@@ -17,9 +23,12 @@ export default function RegisterScreen() {
   async function handleRegister() {
     setError(null);
     try {
+      const body =
+        role === "STUDENT" ? { email, password, role, displayName, gradeId } : { email, password, role };
+
       const tokens = await apiFetch<{ accessToken: string }>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ name, email, password, role }),
+        body: JSON.stringify(body),
       });
       setAccessToken(tokens.accessToken);
       router.replace(role === "STUDENT" ? "/(student)/home" : "/(parent)/home");
@@ -31,7 +40,6 @@ export default function RegisterScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{t("auth.register")}</Text>
-      <TextInput style={styles.input} placeholder={t("auth.name")} value={name} onChangeText={setName} />
       <TextInput
         style={styles.input}
         placeholder={t("auth.email")}
@@ -62,6 +70,22 @@ export default function RegisterScreen() {
           <Text>{t("auth.parent")}</Text>
         </TouchableOpacity>
       </View>
+      {role === "STUDENT" && (
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder={t("auth.name")}
+            value={displayName}
+            onChangeText={setDisplayName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder={t("auth.gradeId")}
+            value={gradeId}
+            onChangeText={setGradeId}
+          />
+        </>
+      )}
       {error && <Text style={styles.error}>{error}</Text>}
       <TouchableOpacity style={styles.button} onPress={handleRegister}>
         <Text style={styles.buttonText}>{t("auth.register")}</Text>

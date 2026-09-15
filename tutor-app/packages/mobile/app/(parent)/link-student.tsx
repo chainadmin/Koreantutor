@@ -3,22 +3,22 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-nativ
 import { useTranslation } from "react-i18next";
 import { apiFetch } from "../../src/api/client";
 
-// A parent invites by student email; the student must separately approve
-// the resulting invite code (see (student) invite-approval flow, TODO) —
-// links are never created automatically.
+// A parent requests a link by the student's account email; the student
+// approves the resulting request from their own pending-requests list
+// (GET /api/v1/users/me/pending-requests) — links are never automatic.
 export default function LinkStudentScreen() {
   const { t } = useTranslation();
   const [studentEmail, setStudentEmail] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
-  async function sendInvite() {
+  async function sendRequest() {
     setStatus(null);
     try {
-      const link = await apiFetch<{ inviteCode: string }>("/users/links/invite", {
+      await apiFetch("/users/links/request", {
         method: "POST",
         body: JSON.stringify({ studentEmail }),
       });
-      setStatus(`Invite sent. Code: ${link.inviteCode}`);
+      setStatus("Request sent — waiting for the student to approve it.");
     } catch (err) {
       setStatus((err as Error).message);
     }
@@ -35,7 +35,7 @@ export default function LinkStudentScreen() {
         value={studentEmail}
         onChangeText={setStudentEmail}
       />
-      <TouchableOpacity style={styles.button} onPress={sendInvite}>
+      <TouchableOpacity style={styles.button} onPress={sendRequest}>
         <Text style={styles.buttonText}>{t("common.submit")}</Text>
       </TouchableOpacity>
       {status && <Text>{status}</Text>}

@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { Role } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
 import { env } from "../config/env";
 import type { AccessTokenPayload } from "../types/auth";
 
@@ -18,7 +18,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-export function requireRole(...roles: Role[]) {
+export function requireRole(...roles: UserRole[]) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
       return reply.code(401).send({ error: "Not authenticated" });

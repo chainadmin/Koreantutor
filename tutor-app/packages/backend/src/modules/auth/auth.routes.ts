@@ -1,16 +1,17 @@
 import type { FastifyInstance } from "fastify";
-import { AuthService } from "./auth.service";
+import { AuthService, type RegisterParams } from "./auth.service";
 
 const registerSchema = {
   body: {
     type: "object",
-    required: ["email", "password", "name", "role"],
+    required: ["email", "password", "role"],
     properties: {
       email: { type: "string", format: "email" },
       password: { type: "string", minLength: 8 },
-      name: { type: "string", minLength: 1 },
       role: { type: "string", enum: ["STUDENT", "PARENT"] },
-      locale: { type: "string" },
+      // Required when role === "STUDENT":
+      displayName: { type: "string", minLength: 1 },
+      gradeId: { type: "string" },
     },
   },
 } as const;
@@ -40,16 +41,25 @@ export async function authRoutes(app: FastifyInstance) {
   const authService = new AuthService(app.prisma);
 
   app.post("/register", { schema: registerSchema }, async (request, reply) => {
-    const { email, password, name, role, locale } = request.body as {
+    const body = request.body as {
       email: string;
       password: string;
-      name: string;
       role: "STUDENT" | "PARENT";
-      locale?: string;
+      displayName?: string;
+      gradeId?: string;
     };
 
+    if (body.role === "STUDENT" && (!body.displayName || !body.gradeId)) {
+      return reply.code(400).send({ error: "displayName and gradeId are required for student registration" });
+    }
+
+    const params: RegisterParams =
+      body.role === "STUDENT"
+        ? { email: body.email, password: body.password, role: "STUDENT", displayName: body.displayName!, gradeId: body.gradeId! }
+        : { email: body.email, password: body.password, role: "PARENT" };
+
     try {
-      const tokens = await authService.register({ email, password, name, role, locale });
+      const tokens = await authService.register(params);
       return reply.code(201).send(tokens);
     } catch (err) {
       return reply.code(409).send({ error: (err as Error).message });

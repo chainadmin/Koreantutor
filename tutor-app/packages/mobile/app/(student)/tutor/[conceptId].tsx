@@ -11,8 +11,8 @@ interface TutoringStep {
 }
 
 // Drives one TutoringSession state machine turn per tap. Each POST to
-// /tutoring/sessions/:id/advance mirrors one TutoringSession.advance() call
-// on the backend (see packages/backend/src/services/tutoring/tutoring-session.ts).
+// /tutoring/conversations/:id/advance mirrors one TutoringSession.advance()
+// call on the backend (see packages/backend/src/services/tutoring/tutoring-session.ts).
 export default function TutorSessionScreen() {
   const { conceptId } = useLocalSearchParams<{ conceptId: string }>();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -20,16 +20,16 @@ export default function TutorSessionScreen() {
   const [answer, setAnswer] = useState("");
 
   async function start() {
-    const { sessionId: id } = await apiFetch<{ sessionId: string }>("/tutoring/sessions", {
+    const { conversationId } = await apiFetch<{ conversationId: string }>("/tutoring/conversations", {
       method: "POST",
       body: JSON.stringify({ conceptId }),
     });
-    setSessionId(id);
-    await advance(id);
+    setSessionId(conversationId);
+    await advance(conversationId);
   }
 
   async function advance(id: string, studentAnswer?: string) {
-    const step = await apiFetch<TutoringStep>(`/tutoring/sessions/${id}/advance`, {
+    const step = await apiFetch<TutoringStep>(`/tutoring/conversations/${id}/advance`, {
       method: "POST",
       body: JSON.stringify({ answer: studentAnswer }),
     });
